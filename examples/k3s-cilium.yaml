@@ -1,0 +1,62 @@
+#
+# launches a vm with k3s and cilium installed..
+#
+# limactl start --name=default https://raw.githubusercontent.com/adegoodyer/lima/master/examples/k3s-cilium.yaml
+#
+
+images:
+  # Try to use release-yyyyMMdd image if available. Note that release-yyyyMMdd will be removed after several months.
+  - location: "https://cloud-images.ubuntu.com/releases/22.04/release-20220712/ubuntu-22.04-server-cloudimg-amd64.img"
+    arch: "x86_64"
+    digest: "sha256:86481acb9dbd62e3e93b49eb19a40c66c8aa07f07eff10af20ddf355a317e29f"
+  - location: "https://cloud-images.ubuntu.com/releases/22.04/release-20220712/ubuntu-22.04-server-cloudimg-arm64.img"
+    arch: "aarch64"
+    digest: "sha256:e1ce033239f0038dca5ef09e582762ba0d0dfdedc1d329bc51bb0e9f5057af9d"
+  # Fallback to the latest release image.
+  # Hint: run `limactl prune` to invalidate the cache
+  - location: "https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img"
+    arch: "x86_64"
+  - location: "https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-arm64.img"
+    arch: "aarch64"
+
+# Mounts are disabled in this example, but can be enabled optionally.
+mounts: []
+
+# containerd is managed by k3s, not by Lima, so the values are set to false here.
+containerd:
+  system: false
+  user: false
+
+provision:
+  - mode: system
+    script: |
+      #!/bin/sh
+      curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC='--flannel-backend=none --disable-network-policy' sh -
+
+probes:
+  - script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      if ! timeout 30s bash -c "until test -f /etc/rancher/k3s/k3s.yaml; do sleep 3; done"; then
+              echo >&2 "k3s is not running yet"
+              exit 1
+      fi
+    hint: |
+      The k3s kubeconfig file has not yet been created.
+      Run "limactl shell k3s sudo journalctl -u k3s" to check the log.
+      If that is still empty, check the bottom of the log at "/var/log/cloud-init-output.log".
+
+message: |
+  -------------------------------------------------------------------------------------
+  Setup kubectl on the host (assumes kubectl is installed), run the following commands:
+  -------------------------------------------------------------------------------------
+  mkdir -p "$HOME/.lima/default/conf" &&
+  export KUBECONFIG="$HOME/.lima/default/conf/kubeconfig.yaml" &&
+  lima sudo cat /etc/rancher/k3s/k3s.yaml > $KUBECONFIG &&
+  k get po -A
+  ------------------------------------------------
+  Then install cilium, run the following commands:
+  ------------------------------------------------
+  cilium install &&
+  cilium status --wait &&
+  cilium connectivity test
